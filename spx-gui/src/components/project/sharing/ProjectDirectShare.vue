@@ -58,7 +58,7 @@
 import { UIButton, UIFormModal, UITextInput } from '@/components/ui'
 import { useMessageHandle } from '@/utils/exception'
 import { getProjectShareRoute } from '@/router'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import type { PlatformConfig } from './platform-share'
 import type { ProjectData } from '@/apis/project'
 import PlatformSelector from './PlatformSelector.vue'
@@ -92,6 +92,7 @@ const handleCopy = useMessageHandle(
 
 async function handlePlatformChange(platform: PlatformConfig) {
   selectedPlatform.value = platform
+  await nextTick()
 
   const shareURL = await getPlatformShareURL(platform)
   if (shareURL) {
@@ -106,12 +107,13 @@ async function getPlatformShareURL(platform: PlatformConfig) {
   if (platform.shareType.supportURL && platform.shareFunction.shareURL) {
     return platform.shareFunction.shareURL(projectSharingLink.value)
   } else if (platform.shareType.supportImage && platform.shareFunction.shareImage) {
-    // 生成海报文件并传递给shareImage方法
     if (posterCompRef.value == null) {
       throw new Error('Poster component not ready')
     }
     const posterFile = await posterCompRef.value.createPoster()
-    return await platform.shareFunction.shareImage(posterFile)
+
+    const result = await platform.shareFunction.shareImage(posterFile)
+    return result
   } else {
     return null
   }

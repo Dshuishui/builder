@@ -198,6 +198,22 @@ const createPoster = async (): Promise<File> => {
 
   await nextTick() // Ensure DOM has been updated
 
+  const images = posterElementRef.value.querySelectorAll('img')
+  await Promise.all(
+    Array.from(images).map((img) => {
+      if (img.complete) return Promise.resolve()
+      return new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => {
+          console.warn('Image failed to load:', img.src)
+          resolve() // 即使失败也继续，避免阻塞
+        }
+        // 如果图片已经在加载中，设置超时
+        setTimeout(() => resolve(), 5000) // 5秒超时
+      })
+    })
+  )
+
   const posterCanvas = await html2canvas(posterElementRef.value, {
     width: 800,
     height: 1000,

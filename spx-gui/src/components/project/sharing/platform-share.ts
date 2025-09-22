@@ -1,4 +1,7 @@
 import { getWeChatJSSDKConfig } from '@/apis/wechat'
+import { getDouyinH5Config } from '@/apis/douyin'
+import { saveFile, universalUrlToWebUrl } from '@/models/common/cloud'
+import { fromNativeFile } from '@/models/common/file'
 /**
  * 社交平台配置
  */
@@ -195,7 +198,21 @@ class DouyinPlatform implements PlatformConfig {
 
   shareFunction = {
     shareImage: async (image: File) => {
-      return `platformUrl:${platformUrl},image:${image}`
+      const projectFile = fromNativeFile(image)
+      const universalUrl = await saveFile(projectFile)
+      const imageUrl = await universalUrlToWebUrl(universalUrl)
+      const config = await getDouyinH5Config()
+
+      const schema = buildDouyinSchema({
+        clientKey: config.clientKey,
+        nonceStr: config.nonceStr,
+        timestamp: config.timestamp,
+        signature: config.signature,
+        imagePath: imageUrl,
+        title: '看看我在XBuilder做的作品'
+      })
+
+      return schema
     },
     shareVideo: async (video: File) => {
       return `platformUrl:${platformUrl},video:${video}`
@@ -284,4 +301,28 @@ export const initShareInfo = async (shareInfo?: ShareInfo): Promise<Disposer> =>
     qq.initShareInfo(defaultShareInfo)
     wechat.initShareInfo(defaultShareInfo)
   }
+}
+
+function buildDouyinSchema(params: {
+  clientKey: string
+  nonceStr: string
+  timestamp: string
+  signature: string
+  imagePath: string
+  title?: string
+}): string {
+  const queryParams = new URLSearchParams({
+    share_type: 'h5',
+    client_key: params.clientKey,
+    nonce_str: params.nonceStr,
+    timestamp: params.timestamp,
+    signature: params.signature,
+    image_path: params.imagePath
+  })
+
+  if (params.title) {
+    queryParams.append('title', params.title)
+  }
+
+  return `snssdk1128://openplatform/share?${queryParams.toString()}`
 }
