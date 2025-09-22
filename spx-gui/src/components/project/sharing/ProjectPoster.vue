@@ -196,20 +196,34 @@ const createPoster = async (): Promise<File> => {
     throw new Error('Poster element not ready or project data is undefined')
   }
 
-  await nextTick() // Ensure DOM has been updated
-
+  if (!imgUrl.value) {
+    await new Promise<void>((resolve) => {
+      const unwatch = watch(
+        () => imgUrl.value,
+        (newValue) => {
+          if (newValue) {
+            nextTick().then(() => {
+              unwatch()
+              resolve()
+            })
+          }
+        }
+      )
+    })
+  } else {
+    await nextTick()
+  }
   const images = posterElementRef.value.querySelectorAll('img')
   await Promise.all(
     Array.from(images).map((img) => {
       if (img.complete) return Promise.resolve()
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<void>((resolve) => {
         img.onload = () => resolve()
         img.onerror = () => {
           console.warn('Image failed to load:', img.src)
-          resolve() // 即使失败也继续，避免阻塞
+          resolve()
         }
-        // 如果图片已经在加载中，设置超时
-        setTimeout(() => resolve(), 5000) // 5秒超时
+        setTimeout(() => resolve(), 5000)
       })
     })
   )
