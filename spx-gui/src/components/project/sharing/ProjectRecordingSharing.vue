@@ -117,13 +117,17 @@ async function generateShareQRCode() {
 
     let shareUrl = ''
 
-    // Prefer direct video sharing if available; if it returns a Component (manual guide), render it
+    // Prefer direct video sharing if available
     if (platform.shareType.supportVideo && platform.shareFunction.shareVideo && props.video) {
       const res = platform.shareFunction.shareVideo(props.video)
-      // shareVideo returns Component (manual guide) in our platform config
-      guideComponent.value = res
-      // When manual guide is shown, QR is not needed; use currentUrl as placeholder
-      shareUrl = currentUrl
+
+      if (res instanceof Promise) {
+        shareUrl = await res
+        guideComponent.value = null
+      } else {
+        guideComponent.value = res
+        shareUrl = currentUrl
+      }
     } else if (platform.shareType.supportURL && platform.shareFunction.shareURL) {
       // Support URL sharing, directly share recording page link
       shareUrl = await platform.shareFunction.shareURL(currentUrl)

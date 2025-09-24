@@ -3,6 +3,10 @@ import { h, type Component, ref, onMounted } from 'vue'
 import { useI18n } from '@/utils/i18n'
 import UIButton from '@/components/ui/UIButton.vue'
 import QRCode from 'qrcode'
+import { Input, Output, Conversion, ALL_FORMATS, BlobSource, Mp4OutputFormat, BufferTarget } from 'mediabunny'
+import { saveFile, universalUrlToWebUrl } from '@/models/common/cloud'
+import { fromNativeFile } from '@/models/common/file'
+import { getDouyinH5Config } from '@/apis/douyin'
 // import { useI18n } from '@/utils/i18n'
 /**
  * 社交平台配置
@@ -276,8 +280,7 @@ class DouyinPlatform implements PlatformConfig {
   shareType = {
     supportURL: false,
     supportImage: true,
-    // 手机端跳转 URL（通过组件引导）
-    supportVideo: true
+    supportVideo: true // 支持视频分享
   }
 
   shareFunction = {
@@ -292,26 +295,212 @@ class DouyinPlatform implements PlatformConfig {
             title: { en: 'Download poster', zh: '下载海报' },
             desc: { en: 'Save the poster to your phone', zh: '将海报保存到手机相册' }
           },
-          { title: { en: 'Open Douyin', zh: '打开抖音' }, desc: { en: 'Tap "+" to create', zh: '点击“+”创建' } },
+          {
+            title: { en: 'Open Douyin', zh: '打开抖音' },
+            desc: { en: 'Tap "+" to create', zh: '点击"+"创建' }
+          },
           {
             title: { en: 'Upload & publish', zh: '上传发布' },
             desc: { en: 'Select downloaded poster', zh: '选择刚下载的海报并发布' }
           }
         ]
       }),
-    shareVideo: (video: File) =>
-      createJumpLinkComponent({
-        title: { en: 'Open Douyin to share video', zh: '打开抖音进行视频分享' },
-        url: JUMP_LINKS.douyinMobile,
-        openInNewTab: false,
-        video: video
-      })
+
+    // 返回抖音schema字符串，用于生成二维码
+    shareVideo: async (video: File): Promise<string> => {
+      try {
+        let finalVideo = video
+
+        // 检查是否需要webm转mp4格式转换
+        if (this.needsVideoConversion(video)) {
+          finalVideo = await this.convertWebmToMp4(video)
+        }
+
+        // 上传视频到云端
+        const videoUrl = await this.uploadVideo(finalVideo)
+
+        // 获取抖音H5配置
+        const config = await getDouyinH5Config()
+
+        // 生成抖音视频分享Schema
+        const schema = this.buildDouyinVideoSchema({
+          clientKey: config.clientKey,
+          nonceStr: config.nonceStr,
+          timestamp: config.timestamp,
+          signature: config.signature,
+          videoPath: videoUrl,
+          title: '看看我在XBuilder录制的游戏演示'
+        })
+
+        return schema
+      } catch (error) {
+        console.error('[Douyin] shareVideo 失败:', error)
+        return JUMP_LINKS.douyinMobile
+      }
+    }
   }
 
   async initShareInfo(shareInfo?: ShareInfo) {
-    // 抖音平台暂不支持设置分享信息
     void shareInfo
     return
+  }
+
+  /**
+   * 检查视频是否需要转码
+   */
+  private needsVideoConversion(video: File): boolean {
+    return video.type.includes('webm') || video.name.endsWith('.webm')
+  }
+
+  /**
+   * 使用Mediabunny将webm转码为mp4（H.264编码）
+   */
+  private async convertWebmToMp4(webmVideo: File): Promise<File> {
+    try {
+      const input = new Input({
+        source: new BlobSource(webmVideo),
+        formats: ALL_FORMATS
+      })
+
+      const output = new Output({
+        format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
+        target: new BufferTarget()
+      })
+
+      const conversion = await Conversion.init({
+        input,
+        output,
+        // ---- 新增配置 ----
+        video: () => ({
+          // 明确要求将视频轨道转码为 'avc' (H.264)
+          codec: 'avc'
+          // bitrate: 2_000_000, // 2 Mbps
+        }),
+        audio: () => ({
+          codec: 'aac'
+          // bitrate: 128_000, // 128 kbps
+        })
+      })
+
+      // 检查是否有视频轨道被使用
+      const hasVideoTrack = conversion.utilizedTracks.some((track) => track.type === 'video')
+      const hasAudioTrack = conversion.utilizedTracks.some((track) => track.type === 'audio')
+
+      if (!hasVideoTrack) {
+        throw new Error('转码失败：视频轨道被丢弃，无法生成有效的MP4文件')
+      }
+
+      if (!hasAudioTrack) {
+        console.warn('[Douyin] 警告：音频轨道被丢弃')
+      }
+
+      await conversion.execute()
+
+      const buffer = output.target.buffer
+      if (!buffer) throw new Error('转码失败：输出buffer为空')
+
+      const mp4File = new globalThis.File([buffer], webmVideo.name.replace(/\.webm$/, '.mp4'), { type: 'video/mp4' })
+
+      // 验证转码后的文件
+      const isValid = await this.validateMp4File(mp4File)
+      if (!isValid) {
+        throw new Error('转码后的MP4文件验证失败')
+      }
+
+      return mp4File
+    } catch (error) {
+      console.error('[Douyin] Mediabunny转码失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 验证转码后的MP4文件是否有效
+   */
+  private async validateMp4File(mp4File: File): Promise<boolean> {
+    try {
+      const video = document.createElement('video')
+      const url = URL.createObjectURL(mp4File)
+
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          const result = {
+            duration: video.duration,
+            videoWidth: video.videoWidth,
+            videoHeight: video.videoHeight,
+            hasVideo: video.videoWidth > 0 && video.videoHeight > 0,
+            fileSize: mp4File.size
+          }
+
+          URL.revokeObjectURL(url)
+
+          // 必须有视频轨道且时长大于0
+          resolve(result.hasVideo && result.duration > 0)
+        }
+
+        video.onerror = (e) => {
+          console.error('[Douyin] MP4文件验证失败:', e)
+          URL.revokeObjectURL(url)
+          resolve(false)
+        }
+
+        // 设置超时
+        setTimeout(() => {
+          console.error('[Douyin] MP4验证超时')
+          URL.revokeObjectURL(url)
+          resolve(false)
+        }, 5000)
+
+        video.src = url
+      })
+    } catch (error) {
+      console.error('[Douyin] MP4验证异常:', error)
+      return false
+    }
+  }
+
+  /**
+   * 上传视频到云端
+   */
+  private async uploadVideo(video: File): Promise<string> {
+    const projectFile = fromNativeFile(video)
+    const kodoUrl = await saveFile(projectFile)
+    const webUrl = await universalUrlToWebUrl(kodoUrl)
+    return webUrl
+  }
+
+  /**
+   * 构建抖音视频分享Schema
+   */
+  private buildDouyinVideoSchema(params: {
+    clientKey: string
+    nonceStr: string
+    timestamp: string
+    signature: string
+    videoPath: string
+    title?: string
+  }): string {
+    const queryParams = new URLSearchParams({
+      share_type: 'h5',
+      client_key: params.clientKey,
+      nonce_str: params.nonceStr,
+      timestamp: params.timestamp,
+      signature: params.signature,
+      video_path: params.videoPath,
+      state: '608',
+      share_to_publish: '1', // 直接跳转到发布页
+      share_to_type: '0'
+    })
+
+    if (params.title) {
+      queryParams.append('title', params.title)
+    }
+
+    // 添加推荐话题
+    const hashtags = JSON.stringify(['XBuilder', '游戏制作', '编程'])
+    queryParams.append('hashtag_list', hashtags)
+
+    return `snssdk1128://openplatform/share?${queryParams.toString()}`
   }
 }
 
