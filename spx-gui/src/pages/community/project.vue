@@ -53,6 +53,7 @@ import type { RecordingData, CreateRecordingParams } from '@/apis/recording'
 import { createRecording, deleteRecording } from '@/apis/recording'
 import { saveFile } from '@/models/common/cloud'
 import { File } from '@/models/common/file'
+import { Input, Output, Conversion, ALL_FORMATS, BlobSource, Mp4OutputFormat, BufferTarget } from 'mediabunny'
 
 function createProjectFile(webFile: globalThis.File): File {
   const loader = async () => {
@@ -387,7 +388,14 @@ function saveRecording(recordFile: globalThis.File): Promise<RecordingData> {
       })
     }
 
-    const projectFile = createProjectFile(recordFile)
+    let finalVideoFile = recordFile
+    try {
+      finalVideoFile = await convertWebmToMp4(recordFile)
+    } catch (error) {
+      console.error('视频转换失败，使用原始文件:', error)
+    }
+
+    const projectFile = createProjectFile(finalVideoFile)
     const RecordingURL = await saveFile(projectFile) // Store to cloud and get video storage URL
 
     const params: CreateRecordingParams = {
@@ -398,10 +406,61 @@ function saveRecording(recordFile: globalThis.File): Promise<RecordingData> {
       thumbnailUrl: projectData.value.thumbnail || ''
     }
 
-    const created: RecordingData = await createRecording(params) // Call Recording APIs to store to backend
+    const created: RecordingData = await createRecording(params)
     recordData.value = created
     return created
   })()
+}
+
+// Convert webm to mp4 using Mediabunny (H.264 encoding)
+async function convertWebmToMp4(webmVideo: globalThis.File): Promise<globalThis.File> {
+  try {
+    const input = new Input({
+      source: new BlobSource(webmVideo),
+      formats: ALL_FORMATS
+    })
+
+    const output = new Output({
+      format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
+      target: new BufferTarget()
+    })
+
+    const conversion = await Conversion.init({
+      input,
+      output,
+      video: () => ({
+        codec: 'avc'
+      }),
+      audio: () => ({
+        codec: 'aac'
+      })
+    })
+
+    const hasVideoTrack = conversion.utilizedTracks.some((track) => track.type === 'video')
+    const hasAudioTrack = conversion.utilizedTracks.some((track) => track.type === 'audio')
+
+    if (!hasVideoTrack) {
+      throw new Error('转码失败：视频轨道被丢弃，无法生成有效的MP4文件')
+    }
+
+    if (!hasAudioTrack) {
+      console.warn('[Recording] 警告：音频轨道被丢弃')
+    }
+
+    await conversion.execute()
+
+    const buffer = output.target.buffer
+    if (!buffer) throw new Error('转码失败：输出buffer为空')
+
+    const mp4File = new globalThis.File([buffer], 'converted.mp4', {
+      type: 'video/mp4'
+    })
+
+    return mp4File
+  } catch (error) {
+    console.error('[Recording] Mediabunny转码失败:', error)
+    throw error
+  }
 }
 
 // Handle recording sharing results
@@ -441,7 +500,6 @@ const handleRecordingSharing = useMessageHandle(
     try {
       const result = await shareRecording({
         recording: recordingPromise,
-        video: recordFile
       })
 
       const recordingData = await recordingPromise.catch(() => null)
