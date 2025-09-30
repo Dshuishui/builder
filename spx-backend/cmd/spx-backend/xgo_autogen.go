@@ -214,6 +214,10 @@ type post_recording_id_view struct {
 	yap.Handler
 	*AppV2
 }
+type post_transcode struct {
+	yap.Handler
+	*AppV2
+}
 type post_user_username_following struct {
 	yap.Handler
 	*AppV2
@@ -407,17 +411,18 @@ func (this *AppV2) Main() {
 	_xgo_obj42 := &post_recording{AppV2: this}
 	_xgo_obj43 := &post_recording_id_liking{AppV2: this}
 	_xgo_obj44 := &post_recording_id_view{AppV2: this}
-	_xgo_obj45 := &post_user_username_following{AppV2: this}
-	_xgo_obj46 := &post_util_fileurls{AppV2: this}
-	_xgo_obj47 := &post_wechat_jssdk_config{AppV2: this}
-	_xgo_obj48 := &post_workflow_stream_message{AppV2: this}
-	_xgo_obj49 := &put_asset_id{AppV2: this}
-	_xgo_obj50 := &put_course_series_id{AppV2: this}
-	_xgo_obj51 := &put_course_id{AppV2: this}
-	_xgo_obj52 := &put_project_owner_name{AppV2: this}
-	_xgo_obj53 := &put_recording_id{AppV2: this}
-	_xgo_obj54 := &put_user{AppV2: this}
-	yap.Gopt_AppV2_Main(this, _xgo_obj0, _xgo_obj1, _xgo_obj2, _xgo_obj3, _xgo_obj4, _xgo_obj5, _xgo_obj6, _xgo_obj7, _xgo_obj8, _xgo_obj9, _xgo_obj10, _xgo_obj11, _xgo_obj12, _xgo_obj13, _xgo_obj14, _xgo_obj15, _xgo_obj16, _xgo_obj17, _xgo_obj18, _xgo_obj19, _xgo_obj20, _xgo_obj21, _xgo_obj22, _xgo_obj23, _xgo_obj24, _xgo_obj25, _xgo_obj26, _xgo_obj27, _xgo_obj28, _xgo_obj29, _xgo_obj30, _xgo_obj31, _xgo_obj32, _xgo_obj33, _xgo_obj34, _xgo_obj35, _xgo_obj36, _xgo_obj37, _xgo_obj38, _xgo_obj39, _xgo_obj40, _xgo_obj41, _xgo_obj42, _xgo_obj43, _xgo_obj44, _xgo_obj45, _xgo_obj46, _xgo_obj47, _xgo_obj48, _xgo_obj49, _xgo_obj50, _xgo_obj51, _xgo_obj52, _xgo_obj53, _xgo_obj54)
+	_xgo_obj45 := &post_transcode{AppV2: this}
+	_xgo_obj46 := &post_user_username_following{AppV2: this}
+	_xgo_obj47 := &post_util_fileurls{AppV2: this}
+	_xgo_obj48 := &post_wechat_jssdk_config{AppV2: this}
+	_xgo_obj49 := &post_workflow_stream_message{AppV2: this}
+	_xgo_obj50 := &put_asset_id{AppV2: this}
+	_xgo_obj51 := &put_course_series_id{AppV2: this}
+	_xgo_obj52 := &put_course_id{AppV2: this}
+	_xgo_obj53 := &put_project_owner_name{AppV2: this}
+	_xgo_obj54 := &put_recording_id{AppV2: this}
+	_xgo_obj55 := &put_user{AppV2: this}
+	yap.Gopt_AppV2_Main(this, _xgo_obj0, _xgo_obj1, _xgo_obj2, _xgo_obj3, _xgo_obj4, _xgo_obj5, _xgo_obj6, _xgo_obj7, _xgo_obj8, _xgo_obj9, _xgo_obj10, _xgo_obj11, _xgo_obj12, _xgo_obj13, _xgo_obj14, _xgo_obj15, _xgo_obj16, _xgo_obj17, _xgo_obj18, _xgo_obj19, _xgo_obj20, _xgo_obj21, _xgo_obj22, _xgo_obj23, _xgo_obj24, _xgo_obj25, _xgo_obj26, _xgo_obj27, _xgo_obj28, _xgo_obj29, _xgo_obj30, _xgo_obj31, _xgo_obj32, _xgo_obj33, _xgo_obj34, _xgo_obj35, _xgo_obj36, _xgo_obj37, _xgo_obj38, _xgo_obj39, _xgo_obj40, _xgo_obj41, _xgo_obj42, _xgo_obj43, _xgo_obj44, _xgo_obj45, _xgo_obj46, _xgo_obj47, _xgo_obj48, _xgo_obj49, _xgo_obj50, _xgo_obj51, _xgo_obj52, _xgo_obj53, _xgo_obj54, _xgo_obj55)
 }
 //line cmd/spx-backend/delete_asset_#id.yap:6
 func (this *delete_asset_id) Main(_xgo_arg0 *yap.Context) {
@@ -2547,6 +2552,37 @@ func (this *post_recording_id_view) Classfname() string {
 	return "post_recording_#id_view"
 }
 func (this *post_recording_id_view) Classclone() yap.HandlerProto {
+	_xgo_ret := *this
+	return &_xgo_ret
+}
+//line cmd/spx-backend/post_transcode.yap:10
+func (this *post_transcode) Main(_xgo_arg0 *yap.Context) {
+	this.Handler.Main(_xgo_arg0)
+//line cmd/spx-backend/post_transcode.yap:10:1
+	ctx := &this.Context
+//line cmd/spx-backend/post_transcode.yap:12:1
+	params := &controller.TranscodeRequest{}
+//line cmd/spx-backend/post_transcode.yap:13:1
+	if !parseJSON(ctx, params) {
+//line cmd/spx-backend/post_transcode.yap:14:1
+		return
+	}
+//line cmd/spx-backend/post_transcode.yap:17:1
+	response, err := this.ctrl.TranscodeVideo(ctx.Context(), params)
+//line cmd/spx-backend/post_transcode.yap:18:1
+	if err != nil {
+//line cmd/spx-backend/post_transcode.yap:19:1
+		replyWithInnerError(ctx, err)
+//line cmd/spx-backend/post_transcode.yap:20:1
+		return
+	}
+//line cmd/spx-backend/post_transcode.yap:23:1
+	this.Json__1(response)
+}
+func (this *post_transcode) Classfname() string {
+	return "post_transcode"
+}
+func (this *post_transcode) Classclone() yap.HandlerProto {
 	_xgo_ret := *this
 	return &_xgo_ret
 }

@@ -56,6 +56,7 @@ import { File } from '@/models/common/file'
 import { Input, Output, Conversion, ALL_FORMATS, BlobSource, Mp4OutputFormat, BufferTarget } from 'mediabunny'
 import { useMessage } from '@/components/ui'
 import { useI18n } from '@/utils/i18n'
+import { transcodeVideo } from '@/apis/transcode'
 
 const message = useMessage()
 const { t } = useI18n()
@@ -391,87 +392,56 @@ function saveRecording(recordFile: globalThis.File): Promise<RecordingData> {
       })
     }
 
-    let finalVideoFile = recordFile
+    // 1. 上传原始 WebM 文件到七牛云
+    const projectFile = createProjectFile(recordFile)
+    const webmURL = await saveFile(projectFile)
+
+    // 2. 调用后端转码 API
+    let finalVideoURL = webmURL
+    
     try {
-      finalVideoFile = await convertWebmToMp4(recordFile)
+      message.info(
+        t({
+          en: 'Converting video format, please wait...',
+          zh: '正在转换视频格式，请稍候...'
+        })
+      )
+
+      // 使用规范的 API 调用
+      const result = await transcodeVideo({ videoUrl: webmURL })
+      finalVideoURL = result.videoUrl
+
+      message.success(
+        t({
+          en: 'Video conversion completed!',
+          zh: '视频转换完成！'
+        })
+      )
     } catch (error) {
-      console.error('视频转换失败，使用原始文件:', error)
+      console.error('服务端转码失败，使用原始文件:', error)
       message.warning(
         t({
-          en: 'Video format conversion failed. Please try a different browser.',
-          zh: '视频格式转换失败，请尝试换个浏览器。'
+          en: 'Video conversion failed, using original file.',
+          zh: '视频转换失败，使用原始文件。'
         })
       )
     }
 
-    const projectFile = createProjectFile(finalVideoFile)
-    const RecordingURL = await saveFile(projectFile) // Store to cloud and get video storage URL
-
+    // 3. 创建 Recording 记录
     const params: CreateRecordingParams = {
       projectFullName: `${projectData.value.owner}/${projectData.value.name}`,
       title: projectData.value.name,
       description: projectData.value.description ?? '',
-      videoUrl: RecordingURL,
+      videoUrl: finalVideoURL, // kodo:// 格式的 URL
       thumbnailUrl: projectData.value.thumbnail || ''
     }
 
-    const created: RecordingData = await createRecording(params) // Call Recording APIs to store to backend
+    const created: RecordingData = await createRecording(params)
     recordData.value = created
     return created
   })()
 }
 
-async function convertWebmToMp4(webmVideo: globalThis.File): Promise<globalThis.File> {
-  try {
-    const input = new Input({
-      source: new BlobSource(webmVideo),
-      formats: ALL_FORMATS
-    })
-
-    const output = new Output({
-      format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
-      target: new BufferTarget()
-    })
-
-    const conversion = await Conversion.init({
-      input,
-      output,
-      video: () => ({
-        codec: 'av1'
-      }),
-      audio: () => ({
-        codec: 'aac'
-      })
-    })
-
-    const hasVideoTrack = conversion.utilizedTracks.some((track) => track.type === 'video')
-    const hasAudioTrack = conversion.utilizedTracks.some((track) => track.type === 'audio')
-
-    if (!hasVideoTrack) {
-      throw new Error('Transcoding failed: Video track was dropped, cannot generate a valid MP4 file')
-    }
-
-    if (!hasAudioTrack) {
-      console.warn('[Recording] Warning: Audio track was dropped')
-    }
-
-    await conversion.execute()
-
-    const buffer = output.target.buffer
-    if (!buffer) throw new Error('Transcoding failed: Output buffer is empty')
-
-    // Filename is hardcoded since saveFile() will generate its own identifier anyway
-    // and this filename won't be used in the final cloud storage URL
-    const mp4File = new globalThis.File([buffer], 'converted.mp4', {
-      type: 'video/mp4'
-    })
-
-    return mp4File
-  } catch (error) {
-    console.error('[Recording] Mediabunny transcoding failed:', error)
-    throw error
-  }
-}
 
 // Handle recording sharing results
 async function handleShareResult(result: any, recordingToDelete: RecordingData | null) {

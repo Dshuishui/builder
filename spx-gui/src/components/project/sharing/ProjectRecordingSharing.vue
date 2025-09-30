@@ -15,12 +15,12 @@ const props = defineProps<{
 
 type SharingResult =
   | {
-      type: 'shared'
-      platform: string
-    }
+    type: 'shared'
+    platform: string
+  }
   | {
-      type: 'rerecord'
-    }
+    type: 'rerecord'
+  }
 const emit = defineEmits<{
   cancelled: []
   resolved: [result: SharingResult]
@@ -121,15 +121,40 @@ async function generateShareContent() {
         urlShareComponent.value = markRaw(shareComponent)
       }
     } else if (platform.shareType.supportVideo && platform.shareFunction.shareVideo && props.video) {
-      const res = platform.shareFunction.shareVideo(videoSrc.value)
-      // shareVideo returns Component (manual guide) in our platform config
-      guideComponent.value = res
-      // When manual guide is shown, QR is not needed; use currentUrl as placeholder
-      shareURL = currentUrl
+      try {
+        if (!currentRecording.value?.videoUrl) {
+          throw new Error('Video URL not available')
+        }
+        const videoWebURL = await universalUrlToWebUrl(currentRecording.value.videoUrl)
+        console.log('Sharing video URL:', videoWebURL)
+        
+        // 🔧 修复：正确处理异步的 shareVideo 方法
+        const shareResult = platform.shareFunction.shareVideo(videoWebURL)
+        
+        if (shareResult instanceof Promise) {
+          // 如果是 Promise（如抖音平台），则等待完成
+          const comp = await shareResult
+          guideComponent.value = comp ? markRaw(comp) : null
+        } else {
+          // 如果不是 Promise（如其他平台），直接赋值
+          guideComponent.value = shareResult ? markRaw(shareResult) : null
+        }
+        
+        // When manual guide is shown, QR is not needed; use currentUrl as placeholder
+        shareURL = currentUrl
+      } catch (error) {
+        console.error('Failed to generate video share component:', error)
+        guideComponent.value = null
+      }
     } else {
       // Default to use recording page URL
       shareURL = currentUrl
     }
+  } catch (error) {
+    console.error('Failed to generate share content:', error)
+    // Reset components on error
+    urlShareComponent.value = null
+    guideComponent.value = null
   } finally {
     isGeneratingQR.value = false
   }
@@ -147,6 +172,7 @@ watch(
     if (newVisible) {
       // Reset state
       urlShareComponent.value = null
+      guideComponent.value = null
 
       try {
         // Update video source immediately (prioritize props.video)
@@ -179,6 +205,7 @@ watch(
         // Share content generation failed, log error but don't affect other functions
         console.error('Failed to generate sharing content:', error)
         urlShareComponent.value = null
+        guideComponent.value = null
       }
     }
   },
